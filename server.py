@@ -5,14 +5,15 @@ from typing import List, Optional
 import pandas as pd
 from pathlib import Path
 
-# --- Data Path Configuration (Fixed) ---
+# --- Data Path Configuration ---
 FILE_PATH = Path("q-fastapi.csv") 
 
-# --- Pydantic Models (Simplified) ---
-# Use the internal name that matches the renamed DataFrame column
+# --- Pydantic Models (Simplest structure to avoid conflict) ---
 class Student(BaseModel):
     studentId: int
-    class_val: str 
+    # We will not use this model for output serialization; we use it only for validation.
+    # We use a neutral name here to avoid Python keyword conflict.
+    class_safe: str 
 
 class StudentsResponse(BaseModel):
     students: List[Student]
@@ -21,8 +22,8 @@ class StudentsResponse(BaseModel):
 try:
     df = pd.read_csv(FILE_PATH, dtype={'studentId': int, 'class': str})
     
-    # CRITICAL: Rename 'class' to a safe internal name 'class_val'
-    df.rename(columns={'class': 'class_val'}, inplace=True)
+    # CRITICAL: Rename 'class' to a safe internal name 'class_safe' for Python use
+    df.rename(columns={'class': 'class_safe'}, inplace=True)
     
     ALL_STUDENTS_DATA = df.to_dict('records')
     print(f"INFO: Successfully loaded {len(ALL_STUDENTS_DATA)} student records.")
@@ -43,9 +44,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- REST API Endpoint (Final Fix: Manual Dict Construction) ---
+# --- REST API Endpoint (Manual Dict Construction) ---
 @app.get("/api") 
 async def get_students_data(
+    # Use 'class' as the alias to extract the query parameter
     class_filter: Optional[List[str]] = Query(None, alias="class")
 ):
     
@@ -55,20 +57,24 @@ async def get_students_data(
     students_list = ALL_STUDENTS_DATA
 
     if class_filter:
+        # Filter using the internal column name 'class_safe'
         filtered_data = [
             student for student in ALL_STUDENTS_DATA 
-            if student['class_val'] in class_filter
+            if student['class_safe'] in class_filter
         ]
         students_list = filtered_data
 
-    # --- FINAL CRITICAL STEP: Construct the JSON output manually ---
+    # --- FINAL CRITICAL STEP: Manual Dictionary Construction ---
     final_output = []
     for student_dict in students_list:
-        # Create a new dictionary, enforcing the exact key names and the required order.
-        # Python dicts are ordered starting from Python 3.7+
+        
+        # This dictionary construction guarantees the exact key names and the required order.
         output_record = {
+            # Use the data directly from the dictionary (original key is safe)
             "studentId": student_dict['studentId'],
-            "class": student_dict['class_val'] # Manually use the required key "class"
+            
+            # CRUCIAL: Manually use the required output key "class" 
+            "class": student_dict['class_safe'] 
         }
         final_output.append(output_record)
 
