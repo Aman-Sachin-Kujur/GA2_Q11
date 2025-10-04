@@ -5,18 +5,14 @@ from typing import List, Optional
 import pandas as pd
 from pathlib import Path
 
-# --- Data Path Configuration (FIXED for Codespaces) ---
+# --- Data Path Configuration (Fixed) ---
 FILE_PATH = Path("q-fastapi.csv") 
 
-# --- Pydantic Models (Simplest form matching the output JSON) ---
+# --- Pydantic Models (Simplified) ---
+# Use the internal name that matches the renamed DataFrame column
 class Student(BaseModel):
-    # CRITICAL: We use the exact key name 'class' despite Python's keyword warnings 
-    # and rely on it to be correctly serialized in the final output.
-    # This bypasses all alias/serialization conflict issues.
     studentId: int
-    class_val: str # Internal name must be different from 'class' keyword if Python version is older
-    
-    # We will manually map the key in the final return
+    class_val: str 
 
 class StudentsResponse(BaseModel):
     students: List[Student]
@@ -25,7 +21,7 @@ class StudentsResponse(BaseModel):
 try:
     df = pd.read_csv(FILE_PATH, dtype={'studentId': int, 'class': str})
     
-    # CRITICAL FIX: Rename the CSV column to a safe internal name
+    # CRITICAL: Rename 'class' to a safe internal name 'class_val'
     df.rename(columns={'class': 'class_val'}, inplace=True)
     
     ALL_STUDENTS_DATA = df.to_dict('records')
@@ -47,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- REST API Endpoint ---
+# --- REST API Endpoint (Final Fix: Manual Dict Construction) ---
 @app.get("/api") 
 async def get_students_data(
     class_filter: Optional[List[str]] = Query(None, alias="class")
@@ -65,22 +61,18 @@ async def get_students_data(
         ]
         students_list = filtered_data
 
-    # Map the list of dicts to Pydantic Student models
-    students_models = [
-        Student(studentId=s['studentId'], class_val=s['class_val']) 
-        for s in students_list
-    ]
-    
+    # --- FINAL CRITICAL STEP: Construct the JSON output manually ---
     final_output = []
-    for s_model in students_models:
-        # Convert model to dict
-        data_dict = s_model.model_dump()
-        
-        # FINAL CRITICAL STEP: Manually pop the internal key and write the required external key.
-        data_dict['class'] = data_dict.pop('class_val') 
-        final_output.append(data_dict)
+    for student_dict in students_list:
+        # Create a new dictionary, enforcing the exact key names and the required order.
+        # Python dicts are ordered starting from Python 3.7+
+        output_record = {
+            "studentId": student_dict['studentId'],
+            "class": student_dict['class_val'] # Manually use the required key "class"
+        }
+        final_output.append(output_record)
 
-    # Return the dictionary that matches the exact JSON structure required by the assignment
+    # Return the final dictionary structure
     return {"students": final_output}
 
 
