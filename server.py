@@ -1,24 +1,26 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-# Pydantic V2 required imports (best to keep these for future compatibility)
-from pydantic import BaseModel, Field, ConfigDict 
+# Keep V2 imports as they often include V1 compatibility features
+from pydantic import BaseModel, Field 
 from typing import List, Optional
 import pandas as pd
 from pathlib import Path
-import os
-import json # Ensure json is imported for serialization fix below
 
-# --- Data Path Configuration ---
+# --- Data Path Configuration (FIXED for Codespaces) ---
 FILE_PATH = Path("q-fastapi.csv") 
 
-# --- Pydantic Models ---
+# --- Pydantic Models (The Final Compatibility Fix) ---
 class Student(BaseModel):
-    # CRITICAL V2/V1 FIX: Pydantic configuration class
-    # The 'model_config' or nested 'Config' class helps control serialization
-    model_config = ConfigDict(populate_by_name=True)
+    # CRITICAL V1/V2 FIX: Nested Config class for serialization settings
+    # This configuration tells Pydantic to use the alias ("class") for output JSON keys
+    class Config:
+        # Pydantic V1/V2 setting to use the alias name for serialization
+        allow_population_by_field_name = True
     
     studentId: int
-    # Alias ensures Python's internal 'class_name' maps to JSON's required 'class'
+    
+    # Use Field(alias="class") for input mapping, 
+    # and rely on Config to force alias use in output.
     class_name: str = Field(alias="class") 
 
 # Required response structure
@@ -28,7 +30,10 @@ class StudentsResponse(BaseModel):
 # --- Data Loading ---
 try:
     df = pd.read_csv(FILE_PATH, dtype={'studentId': int, 'class': str})
+    
+    # Rename the CSV column to match the internal Python field name
     df.rename(columns={'class': 'class_name'}, inplace=True)
+    
     ALL_STUDENTS_DATA = df.to_dict('records')
     print(f"INFO: Successfully loaded {len(ALL_STUDENTS_DATA)} student records.")
     
@@ -49,14 +54,13 @@ app.add_middleware(
 )
 
 # --- REST API Endpoint ---
-@app.get("/api") # Removed response_model=StudentsResponse for custom serialization control
+@app.get("/api", response_model=StudentsResponse) # Reinstated response_model for strict validation
 async def get_students_data(
     class_filter: Optional[List[str]] = Query(None, alias="class")
-): # Removed type hint for return until serialization is fixed
+) -> StudentsResponse:
     
     if not ALL_STUDENTS_DATA:
-        # Return a standard JSON response when no data is loaded
-        return {"students": []}
+        return StudentsResponse(students=[])
 
     students_list = ALL_STUDENTS_DATA
 
@@ -67,19 +71,14 @@ async def get_students_data(
         ]
         students_list = filtered_data
 
-    # --- CRITICAL SERIALIZATION FIX ---
-    # 1. Convert the list of dicts to Pydantic models.
-    # 2. Convert the Pydantic models to a dict, explicitly demanding the use of aliases (by_alias=True).
+    # Map the dictionary list to Pydantic models
     students = [
         Student(studentId=s['studentId'], class_name=s['class_name']) 
         for s in students_list
     ]
     
-    # Manually dump the list, forcing the alias to be used in the output keys
-    serialized_students = [s.model_dump(by_alias=True) for s in students] 
-    
-    # Return the dictionary that matches the exact structure required by the assignment
-    return {"students": serialized_students}
+    # Returning the model list directly now forces FastAPI to apply the alias from the Config/Field
+    return StudentsResponse(students=students)
 
 
 # --- Running the Server ---
