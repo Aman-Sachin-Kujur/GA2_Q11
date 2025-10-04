@@ -81,7 +81,9 @@ async def get_students_data(
     # Return the final dictionary structure
     return {"students": final_output}
 
-
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Server is running."}
 # --- Running the Server ---
 if __name__ == "__main__":
     import uvicorn
